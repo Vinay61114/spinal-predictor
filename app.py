@@ -9,6 +9,7 @@ import numpy as np
 import joblib
 import shap
 import plotly.graph_objects as go
+import os
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -78,10 +79,10 @@ st.markdown("""
 # ── Load models ───────────────────────────────────────────────────────────────
 @st.cache_resource
 def load_models():
-    los_model = joblib.load('los_model.pkl')
-    rd_model  = joblib.load('rd_model.pkl')
-    le_los    = joblib.load('los_label_encoder.pkl')
-    feat_cols = joblib.load('feature_cols.pkl')
+    los_model = joblib.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "los_model.pkl"))
+    rd_model  = joblib.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "rd_model.pkl"))
+    le_los    = joblib.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "los_label_encoder.pkl"))
+    feat_cols = joblib.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "feature_cols.pkl"))
     return los_model, rd_model, le_los, feat_cols
 
 los_model, rd_model, le_los, FEATURE_COLS = load_models()
@@ -243,10 +244,21 @@ def build_input():
 def shap_chart(model, X_input, feature_cols, title):
     explainer   = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_input)
+
+    # Handle all SHAP output shapes across XGBoost/SHAP versions
     if isinstance(shap_values, list):
-        sv = shap_values[int(model.predict(X_input)[0])][0]
+        sv = np.array(shap_values[int(model.predict(X_input)[0])])[0]
     else:
-        sv = shap_values[0]
+        sv = np.array(shap_values)
+        if sv.ndim == 3:
+            pred_class = int(model.predict(X_input)[0])
+            sv = sv[0, :, pred_class]
+        elif sv.ndim == 2:
+            sv = sv[0]
+        else:
+            sv = sv.flatten()
+
+    sv = sv.flatten()
     feat_df = pd.DataFrame({'Feature': feature_cols, 'SHAP': sv})
     feat_df = feat_df.reindex(feat_df['SHAP'].abs().sort_values(ascending=False).index).head(12).sort_values('SHAP')
     colors  = ['#DC3545' if v > 0 else '#28A745' for v in feat_df['SHAP']]
